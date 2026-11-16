@@ -1,0 +1,35 @@
+# ArgoCD managing itself. Name and namespace match the release argocd.sh
+# installed, so ArgoCD adopts it instead of adding a second copy.
+#
+# To upgrade ArgoCD, bump targetRevision below; argocd.sh reads the same line.
+# To change ArgoCD settings, edit bootstrap/argocd-values.yaml.
+#
+# No resources finalizer on purpose: deleting this Application must not
+# uninstall ArgoCD.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd          # also the Helm release name
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-cd
+      targetRevision: 10.18.0
+      helm:
+        valueFiles:
+          - $values/bootstrap/argocd-values.yaml
+    - repoURL: https://github.com/pslabs2/infra
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: false      # never let ArgoCD prune its own components
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true   # ArgoCD's CRDs are too large for client-side apply

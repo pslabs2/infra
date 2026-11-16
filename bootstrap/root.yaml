@@ -1,0 +1,25 @@
+# Root Application (app-of-apps). Applied once by argocd.sh; it then deploys
+# every Application manifest under clusters/homelab/.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/pslabs2/infra
+    targetRevision: main
+    path: clusters/homelab
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

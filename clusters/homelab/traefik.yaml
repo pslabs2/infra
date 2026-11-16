@@ -1,0 +1,33 @@
+# Traefik ingress controller — replaces the one k3s would have bundled.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: default
+  source:
+    repoURL: https://traefik.github.io/charts
+    chart: traefik
+    targetRevision: 42.4.0
+    helm:
+      valuesObject:
+        # LoadBalancer on 80/443 is picked up by k3s ServiceLB, which the
+        # k3d load balancer forwards to from host ports 8080/8443.
+        service:
+          type: LoadBalancer
+        ingressClass:
+          enabled: true
+          isDefaultClass: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
