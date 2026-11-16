@@ -3,7 +3,7 @@
 # cloudflared.sh — the one cloudflared piece that cannot live in Git.
 #
 # Creates the tunnel-token Secret that the ArgoCD-managed cloudflared
-# Deployment (apps/cloudflared/) reads. The tunnel, its public hostname and
+# Deployment (infrastructure/cloudflared/) reads. The tunnel, its public hostname and
 # the Access policy already exist on the Cloudflare side.
 #
 # Usage:

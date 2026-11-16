@@ -1,26 +1,24 @@
-# Helm values for ArgoCD. Used twice, so there is one source of truth:
-#   - by argocd.sh for the initial install
-#   - by clusters/homelab/argocd.yaml once ArgoCD manages itself
-# ArgoCD configuration changes go here.
-
-global:
-  # Public hostname. cloudflared.sh reads this line for its smoke test.
-  domain: argocd.pukarsubedi.com
-
-configs:
-  params:
-    # Serve plain HTTP: Cloudflare terminates TLS at its edge. Without this
-    # the server redirects to HTTPS forever.
-    server.insecure: true
-
-server:
-  ingress:
-    enabled: true
-    ingressClassName: traefik   # host defaults to global.domain
-
-# The Redis password Secret is created by argocd.sh instead of the chart's
-# pre-install job, which made the Helm install hang.
-redisSecretInit:
-  enabled: false
-redis:
-  existingSecret: argocd-redis
+# Cloudflare Tunnel connector. Plain manifests live in infrastructure/cloudflared/.
+# The tunnel token Secret is created by cloudflared.sh, not stored in Git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudflared
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/pslabs2/infra
+    targetRevision: main
+    path: infrastructure/cloudflared
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cloudflared
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

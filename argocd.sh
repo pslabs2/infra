@@ -1,92 +1,169 @@
 #!/usr/bin/env bash
 #
-# cloudflared.sh — the one cloudflared piece that cannot live in Git.
+# argocd.sh — install ArgoCD on the k3d cluster and hand control to Git.
 #
-# Creates the tunnel-token Secret that the ArgoCD-managed cloudflared
-# Deployment (apps/cloudflared/) reads. The tunnel, its public hostname and
-# the Access policy already exist on the Cloudflare side.
+# Four steps, then Git takes over:
+#   1. Create the ArgoCD namespace.
+#   2. Create the Redis password Secret (replaces the chart's init job).
+#   3. Install ArgoCD from the official Helm chart.
+#   4. Apply the root Application (bootstrap/root.yaml).
+#
+# The chart version is read from clusters/<cluster>/argocd.yaml and the Helm
+# values from bootstrap/argocd-values.yaml — the same files ArgoCD uses to
+# manage itself, so the bootstrap and the GitOps state cannot drift.
 #
 # Usage:
-#   ./cloudflared.sh [secret|verify]
+#   ./argocd.sh [install|wait|status|password]
 #
-#   secret   create or update the token Secret (default)
-#   verify   request the public ArgoCD URL until it answers through the tunnel
-#
-# Configuration:
-#   CLOUDFLARE_TUNNEL_TOKEN  tunnel token; read from the environment, or from a
-#                            git-ignored .env file next to this script
-#   CLUSTER_NAME             k3d cluster name            (default: homelab)
-#   VERIFY_TIMEOUT           seconds to wait in 'verify' (default: 180)
+# Configuration (environment variables):
+#   CLUSTER_NAME   k3d cluster name       (default: homelab)
+#   WAIT_TIMEOUT   readiness timeout      (default: 300s)
+#   DEBUG          set to 1 for Helm debug output
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -f "${ROOT_DIR}/.env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  . "${ROOT_DIR}/.env"
-  set +a
-fi
-
 CLUSTER_NAME="${CLUSTER_NAME:-homelab}"
-VERIFY_TIMEOUT="${VERIFY_TIMEOUT:-180}"
+WAIT_TIMEOUT="${WAIT_TIMEOUT:-300s}"
+DEBUG="${DEBUG:-0}"
 
 KUBE_CONTEXT="k3d-${CLUSTER_NAME}"
-NAMESPACE="cloudflared"
-SECRET="cloudflared-token"
+NAMESPACE="argocd"
+RELEASE="argocd"
+REDIS_SECRET="argocd-redis"
+HELM_REPO_URL="https://argoproj.github.io/argo-helm"
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VALUES_FILE="${ROOT_DIR}/bootstrap/argocd-values.yaml"
+ROOT_APP_FILE="${ROOT_DIR}/bootstrap/root.yaml"
+ARGOCD_APP_FILE="${ROOT_DIR}/clusters/${CLUSTER_NAME}/argocd.yaml"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 die() { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
 kc() { kubectl --context "$KUBE_CONTEXT" "$@"; }
+hc() { helm --kube-context "$KUBE_CONTEXT" "$@"; }
 
-secret() {
-  command -v kubectl >/dev/null 2>&1 || die "'kubectl' is required but not installed"
-  [[ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]] \
-    || die "CLOUDFLARE_TUNNEL_TOKEN is not set (export it, or put it in ${ROOT_DIR}/.env)"
+preflight() {
+  local bin
+  for bin in kubectl helm; do
+    command -v "$bin" >/dev/null 2>&1 || die "'$bin' is required but not installed"
+  done
   kc cluster-info >/dev/null 2>&1 \
     || die "Cannot reach context '${KUBE_CONTEXT}' — run ./cluster.sh first"
+}
+
+# The argo-cd chart version pinned in the self-management Application.
+chart_version() {
+  local version
+  version="$(awk '/chart:[[:space:]]*argo-cd/ {found=1}
+                  found && /targetRevision:/ {print $2; exit}' "$ARGOCD_APP_FILE")"
+  [[ -n "$version" ]] || die "No argo-cd chart version found in ${ARGOCD_APP_FILE}"
+  echo "$version"
+}
+
+install() {
+  local file
+  for file in "$VALUES_FILE" "$ROOT_APP_FILE" "$ARGOCD_APP_FILE"; do
+    [[ -f "$file" ]] || die "Missing ${file}"
+  done
+  local version
+  version="$(chart_version)"
 
   kc get namespace "$NAMESPACE" >/dev/null 2>&1 || kc create namespace "$NAMESPACE"
 
-  log "Applying tunnel token Secret '${NAMESPACE}/${SECRET}'"
-  kc -n "$NAMESPACE" create secret generic "$SECRET" \
-    --from-literal=token="$CLOUDFLARE_TUNNEL_TOKEN" \
-    --dry-run=client -o yaml | kc apply -f - >/dev/null
+  # Created here so the chart's redis-secret-init pre-install job, which Helm
+  # blocks on, can stay disabled (see bootstrap/argocd-values.yaml).
+  if ! kc -n "$NAMESPACE" get secret "$REDIS_SECRET" >/dev/null 2>&1; then
+    log "Creating Redis secret '${REDIS_SECRET}'"
+    local password
+    password="$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32 || true)"
+    [[ ${#password} -eq 32 ]] || die "Failed to generate a Redis password"
+    kc -n "$NAMESPACE" create secret generic "$REDIS_SECRET" \
+      --from-literal=auth="$password" >/dev/null
+  fi
+
+  # An interrupted run leaves the release locked ("another operation is in progress").
+  if hc list --namespace "$NAMESPACE" --pending --short | grep -qx "$RELEASE"; then
+    log "Removing release left in a pending state by an earlier run"
+    hc uninstall "$RELEASE" --namespace "$NAMESPACE" --no-hooks
+  fi
+
+  log "Installing ArgoCD (chart ${version})"
+  local helm_args=(
+    upgrade --install "$RELEASE" argo-cd
+    --repo "$HELM_REPO_URL"
+    --version "$version"
+    --namespace "$NAMESPACE"
+    --values "$VALUES_FILE"
+    --hide-notes
+    --wait
+    --timeout "$WAIT_TIMEOUT"
+  )
+  [[ "$DEBUG" == "1" ]] && helm_args+=(--debug)
+  hc "${helm_args[@]}"
+
+  log "Applying root Application"
+  kc wait --for=condition=Established crd/applications.argoproj.io --timeout="$WAIT_TIMEOUT" >/dev/null
+  kc apply -f "$ROOT_APP_FILE"
+
+  status
+  echo
+  log "UI:       kubectl --context ${KUBE_CONTEXT} -n ${NAMESPACE} port-forward svc/${RELEASE}-server 8081:443"
+  log "          then open https://localhost:8081 (user: admin)"
+  log "Password: $0 password"
 }
 
-# 2xx/3xx means Cloudflare reached ArgoCD (or answered with the Access login
-# redirect). 5xx — typically 502/530 — means the tunnel or the route is down.
-verify() {
-  command -v curl >/dev/null 2>&1 || die "'curl' is required but not installed"
-  local host
-  host="$(awk '/^[[:space:]]+domain:/ {print $2; exit}' "$VALUES_FILE")"
-  [[ -n "$host" ]] || die "No global.domain found in ${VALUES_FILE}"
+status() {
+  log "ArgoCD pods (context: ${KUBE_CONTEXT})"
+  kc -n "$NAMESPACE" get pods
+  echo
+  log "Applications"
+  kc -n "$NAMESPACE" get applications.argoproj.io
+}
 
-  log "Checking https://${host}"
-  local deadline=$((SECONDS + VERIFY_TIMEOUT)) result="" code=""
+# Block until every Application is Synced and Healthy, and all the ones
+# declared in clusters/<cluster>/ (plus root) have appeared.
+wait_healthy() {
+  local expected deadline rows pending
+  expected=$(( $(find "$(dirname "$ARGOCD_APP_FILE")" -name '*.yaml' | wc -l) + 1 ))
+  deadline=$((SECONDS + ${WAIT_TIMEOUT%s}))
+
+  log "Waiting for ${expected} Applications to be Synced and Healthy"
   while true; do
-    result="$(curl -sS -o /dev/null --max-time 10 \
-      -w '%{http_code} %{redirect_url}' "https://${host}" 2>/dev/null || true)"
-    code="${result%% *}"
-    if [[ "$code" =~ ^[23] ]]; then
-      case "$result" in
-        *cloudflareaccess.com*) log "OK — HTTP ${code}, protected by Cloudflare Access" ;;
-        *) log "OK — HTTP ${code}. No Access redirect seen: check the Access policy covers ${host}" ;;
-      esac
+    rows="$(kc -n "$NAMESPACE" get applications.argoproj.io \
+      -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.status.sync.status}{" "}{.status.health.status}{"\n"}{end}' \
+      2>/dev/null || true)"
+    pending="$(awk '$2 != "Synced" || $3 != "Healthy"' <<<"$rows")"
+    if [[ -z "$pending" && "$(grep -c . <<<"$rows")" -ge "$expected" ]]; then
+      log "All Applications are Synced and Healthy"
       return 0
     fi
-    ((SECONDS < deadline)) || die "https://${host} not reachable after ${VERIFY_TIMEOUT}s (last response: ${result:-none})"
+    if ((SECONDS >= deadline)); then
+      kc -n "$NAMESPACE" get applications.argoproj.io || true
+      die "Applications not ready after ${WAIT_TIMEOUT}: $(awk '{print $1}' <<<"$pending" | xargs)"
+    fi
     sleep 5
   done
 }
 
-usage() { sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; }
+password() {
+  kc -n "$NAMESPACE" get secret argocd-initial-admin-secret \
+    -o jsonpath='{.data.password}' 2>/dev/null | base64 -d \
+    || die "Initial admin secret not found (it may have been deleted after a password change)"
+  echo
+}
 
-case "${1:-secret}" in
-  secret) secret ;;
-  verify) verify ;;
-  -h|--help|help) usage ;;
-  *) usage; die "Unknown command: $1" ;;
-esac
+usage() { sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//'; }
+
+main() {
+  case "${1:-install}" in
+    install)  preflight; install ;;
+    wait)     preflight; wait_healthy ;;
+    status)   preflight; status ;;
+    password) preflight; password ;;
+    -h|--help|help) usage ;;
+    *) usage; die "Unknown command: $1" ;;
+  esac
+}
+
+main "$@"
