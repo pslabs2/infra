@@ -8,6 +8,19 @@
 # The Redis password Secret is created by argocd.sh instead of the chart's
 # pre-install job, which made the Helm install hang.
 
+global:
+  domain: argocd.pukarsubedi.com
+
+configs:
+  params:
+    server.insecure: true   # TLS ends at Traefik; avoids a redirect loop
+
+server:
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    tls: false              # set true once you have a cert for this host
+
 redisSecretInit:
   enabled: false
 redis:
