@@ -2,91 +2,141 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Configuration
 CLUSTER_NAME="${CLUSTER_NAME:-homelab}"
 CONTEXT="k3d-${CLUSTER_NAME}"
+NAMESPACE="argocd"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VALUES="$ROOT_DIR/bootstrap/argocd-values.yaml"
 ROOT_APP="$ROOT_DIR/bootstrap/root.yaml"
 ARGOCD_APP="$ROOT_DIR/clusters/$CLUSTER_NAME/argocd.yaml"
 
-case "${1:-install}" in
-  install)
-    # Ensure required configuration exists
-    for file in "$VALUES" "$ROOT_APP" "$ARGOCD_APP"; do
-      [[ -f "$file" ]] || { echo "Missing: $file"; exit 1; }
-    done
 
-    # Read chart version from GitOps configuration
-    VERSION=$(awk '
+# Create Redis secret if it doesn't exist
+create_redis_secret() {
+  if kubectl --context "$CONTEXT" -n "$NAMESPACE" \
+    get secret argocd-redis &>/dev/null; then
+    return
+  fi
+
+  echo "Creating Redis secret..."
+
+  kubectl --context "$CONTEXT" -n "$NAMESPACE" \
+    create secret generic argocd-redis \
+    --from-literal=auth="$(openssl rand -hex 32)"
+}
+
+
+# Install Argo CD and bootstrap GitOps
+install_argocd() {
+  echo "Bootstrapping Argo CD..."
+
+  # Verify configuration files
+  for file in "$VALUES" "$ROOT_APP" "$ARGOCD_APP"; do
+    [[ -f "$file" ]] || {
+      echo "Missing configuration: $file"
+      exit 1
+    }
+  done
+
+  # Verify cluster connectivity
+  kubectl --context "$CONTEXT" cluster-info >/dev/null
+
+  # Check whether Argo CD already exists
+  local release
+  release=$(helm --kube-context "$CONTEXT" \
+    list -n "$NAMESPACE" --all -q -f '^argocd$')
+
+  if [[ -z "$release" ]]; then
+    echo "Installing Argo CD..."
+
+    # Read chart version from GitOps Application
+    local version
+    version=$(awk '
       /chart:[[:space:]]*argo-cd/ { found=1 }
       found && /targetRevision:/ { print $2; exit }
     ' "$ARGOCD_APP")
 
-    [[ -n "$VERSION" ]] || { echo "Chart version not found"; exit 1; }
+    [[ -n "$version" ]] || {
+      echo "Argo CD chart version not found."
+      exit 1
+    }
 
     # Create namespace
     kubectl --context "$CONTEXT" \
-      create namespace argocd --dry-run=client -o yaml |
+      create namespace "$NAMESPACE" --dry-run=client -o yaml |
       kubectl --context "$CONTEXT" apply -f -
 
-    # Create Redis password if missing
-    if ! kubectl --context "$CONTEXT" -n argocd \
-      get secret argocd-redis &>/dev/null; then
+    create_redis_secret
 
-      PASSWORD=$(openssl rand -hex 32)
-
-      kubectl --context "$CONTEXT" -n argocd \
-        create secret generic argocd-redis \
-        --from-literal=auth="$PASSWORD"
-    fi
-
-    # Install Argo CD
-    helm --kube-context "$CONTEXT" upgrade --install argocd argo-cd \
+    # Install Helm chart
+    helm --kube-context "$CONTEXT" \
+      upgrade --install argocd argo-cd \
       --repo https://argoproj.github.io/argo-helm \
-      --version "$VERSION" \
-      --namespace argocd \
+      --version "$version" \
+      --namespace "$NAMESPACE" \
       --values "$VALUES" \
       --wait \
       --timeout 5m
 
-    # Hand control to GitOps
-    kubectl --context "$CONTEXT" \
-      apply -f "$ROOT_APP"
+    echo "Argo CD installed successfully."
+  else
+    echo "Argo CD Helm release exists. Skipping installation."
+  fi
 
-    echo "Argo CD installed. Root Application applied."
-    ;;
+  # Hand control to GitOps
+  echo "Applying root Application..."
+  kubectl --context "$CONTEXT" apply -f "$ROOT_APP"
 
-    instructions)
-    # Display initial login instructions
-    echo
-    echo "=============================="
-    echo "     Argo CD Initial Login     "
-    echo "Username: admin"
-    echo "Password: $(kubectl --context "$CONTEXT" -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"
-    echo 
-    echo "1. Port foward"
-    echo "kubectl --context $CONTEXT -n argocd port-forward svc/argocd-server 8080:443"
-    echo
-    echo "2. Argo CD UI: https://localhost:8080"
-    echo "=============================="
-    echo
-    ;;
+  echo "GitOps bootstrap complete."
+  show_login
+}
 
-  status)
-    kubectl --context "$CONTEXT" -n argocd get pods
-    kubectl --context "$CONTEXT" -n argocd get applications
-    ;;
 
-  password)
-    kubectl --context "$CONTEXT" -n argocd \
-      get secret argocd-initial-admin-secret \
-      -o jsonpath='{.data.password}' | base64 -d
-    echo
-    ;;
+# Display first-time login credentials
+show_login() {
+  local password
 
+  password=$(kubectl --context "$CONTEXT" -n "$NAMESPACE" \
+    get secret argocd-initial-admin-secret \
+    -o jsonpath='{.data.password}' 2>/dev/null | base64 -d) || true
+
+  cat <<EOF
+
+========================================
+             Argo CD Login
+========================================
+Username: admin
+Password: ${password:-Unavailable (use existing password)}
+
+1. Start port-forwarding in another terminal:
+
+   kubectl --context $CONTEXT -n $NAMESPACE port-forward svc/argocd-server 8081:80
+
+2. Open in browser:
+
+   http://localhost:8081
+
+========================================
+EOF
+}
+
+
+# Display Argo CD status
+show_status() {
+  kubectl --context "$CONTEXT" -n "$NAMESPACE" get pods
+  kubectl --context "$CONTEXT" -n "$NAMESPACE" get applications
+}
+
+
+# Command entry point
+case "${1:-install}" in
+  install)      install_argocd ;;
+  instructions) show_login ;;
+  status)       show_status ;;
   *)
-    echo "Usage: $0 [install|instructions|status|password]"
+    echo "Usage: $0 [install|instructions|status]"
     exit 1
     ;;
 esac
