@@ -14,7 +14,9 @@
 #
 #   tunnel                     create the tunnel if missing, print its ID
 #   secret                     create or update the tunnel token Secret (default)
-#   publish HOST [options]     route https://HOST through the tunnel to Traefik
+#   publish [NAME] [options]   route https://NAME through the tunnel to Traefik;
+#                              NAME may be a bare subdomain (e.g. argocd) and is
+#                              prompted for, along with --access, if omitted
 #       --service URL          origin (default: $TRAEFIK_SERVICE)
 #       --access EMAILS        protect with Cloudflare Access; comma-separated
 #                              emails and/or @domains allowed to log in
@@ -29,7 +31,8 @@
 #                              Account > Cloudflare Tunnel > Edit
 #                              Zone    > DNS > Edit, Zone > Read
 #                              Account > Access: Apps and Policies > Edit (--access)
-#   CLOUDFLARE_ACCOUNT_ID    Cloudflare account ID
+#   CLOUDFLARE_ACCOUNT_ID    Cloudflare account ID (auto-detected if the token sees one account)
+#   CLOUDFLARE_DOMAIN        appended to bare subdomains (default: pukarsubedi.com)
 #   CLOUDFLARE_TUNNEL_NAME   tunnel name                 (default: $CLUSTER_NAME)
 #   CLOUDFLARE_TUNNEL_TOKEN  optional; if set, 'secret' uses it instead of the API
 #   TRAEFIK_SERVICE          default origin  (default: http://traefik.traefik.svc.cluster.local:80)
@@ -51,6 +54,7 @@ fi
 CLUSTER_NAME="${CLUSTER_NAME:-homelab}"
 VERIFY_TIMEOUT="${VERIFY_TIMEOUT:-180}"
 CLOUDFLARE_TUNNEL_NAME="${CLOUDFLARE_TUNNEL_NAME:-$CLUSTER_NAME}"
+CLOUDFLARE_DOMAIN="${CLOUDFLARE_DOMAIN:-pukarsubedi.com}"
 TRAEFIK_SERVICE="${TRAEFIK_SERVICE:-http://traefik.traefik.svc.cluster.local:80}"
 FORCE="${FORCE:-0}"
 
@@ -91,7 +95,22 @@ prompt() {
 cf_init() {
   require curl jq
   prompt CLOUDFLARE_API_TOKEN "Cloudflare API token" hidden
+  if [[ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
+    # A token scoped to a single account can discover the ID itself.
+    local accounts
+    accounts="$(cf GET "/accounts" 2>/dev/null || echo '[]')"
+    if [[ "$(jq 'length' <<<"$accounts")" == "1" ]]; then
+      CLOUDFLARE_ACCOUNT_ID="$(jq -r '.[0].id' <<<"$accounts")"
+      log "Using Cloudflare account '$(jq -r '.[0].name' <<<"$accounts")' (${CLOUDFLARE_ACCOUNT_ID})"
+    fi
+  fi
   prompt CLOUDFLARE_ACCOUNT_ID "Cloudflare account ID"
+}
+
+# fqdn NAME — append CLOUDFLARE_DOMAIN to a bare subdomain such as "argocd".
+fqdn() {
+  local name="${1,,}"
+  [[ "$name" == *.* ]] && echo "$name" || echo "${name}.${CLOUDFLARE_DOMAIN}"
 }
 
 # cf METHOD PATH [JSON] — call the Cloudflare API and print .result.
@@ -264,10 +283,13 @@ publish() {
     esac
   done
   cf_init
-  prompt host "Public hostname (e.g. app.example.com)"
-  host="${host,,}"
+  prompt host "Subdomain (e.g. argocd -> argocd.${CLOUDFLARE_DOMAIN})"
+  host="$(fqdn "$host")"
   valid_host "$host"
   [[ -n "$service" ]] || die "--service must not be empty"
+  if [[ -z "$access" && -t 0 ]]; then
+    read -r -p "Emails/@domains allowed via Cloudflare Access (comma-separated, blank = public): " access
+  fi
 
   local id zone config rules
   id="$(ensure_tunnel)"
@@ -291,8 +313,8 @@ publish() {
 unpublish() {
   local host="${1:-}"
   cf_init
-  prompt host "Public hostname to remove"
-  host="${host,,}"
+  prompt host "Subdomain to remove (e.g. argocd)"
+  host="$(fqdn "$host")"
   valid_host "$host"
 
   local id zone config rules records rec_id
@@ -354,7 +376,7 @@ verify() {
   done
 }
 
-usage() { sed -n '3,38p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,41p' "$0" | sed 's/^# \{0,1\}//'; }
 
 cmd="${1:-secret}"
 (($#)) && shift
