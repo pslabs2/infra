@@ -45,8 +45,8 @@ install_argocd() {
 
   # Check whether Argo CD already exists
   local release
-  release=$(helm --kube-context "$CONTEXT" \
-    list -n "$NAMESPACE" --all -q -f '^argocd$')
+release=$(helm --kube-context "$CONTEXT" \
+  list -n "$NAMESPACE" --all-namespaces=false -q -f '^argocd$')
 
   if [[ -z "$release" ]]; then
     echo "Installing Argo CD..."
