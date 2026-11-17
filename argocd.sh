@@ -57,6 +57,20 @@ case "${1:-install}" in
     echo "Argo CD installed. Root Application applied."
     ;;
 
+    # Display initial login instructions
+    echo
+    echo "=============================="
+    echo "     Argo CD Initial Login     "
+    echo "Username: admin"
+    echo "Password: $(kubectl --context "$CONTEXT" -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d)"
+    echo 
+    echo "1. Port foward"
+    echo "kubectl --context $CONTEXT -n argocd port-forward svc/argocd-server 8080:443"
+    echo
+    echo "2. Argo CD UI: https://localhost:8080"
+    echo "=============================="
+    echo
+
   status)
     kubectl --context "$CONTEXT" -n argocd get pods
     kubectl --context "$CONTEXT" -n argocd get applications
