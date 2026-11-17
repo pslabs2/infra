@@ -1,5 +1,3 @@
-# https://taskfile.dev
-
 version: "3"
 
 vars:
@@ -9,12 +7,11 @@ vars:
 tasks:
   default:
     desc: List available tasks
-    silent: true
     cmds:
       - task --list
 
   up:
-    desc: Create cluster and bootstrap GitOps
+    desc: Bootstrap the GitOps platform
     cmds:
       - task: cluster
       - task: argocd
@@ -22,12 +19,12 @@ tasks:
       - task: show
 
   down:
-    desc: Delete the k3d cluster
+    desc: Delete the cluster
     cmds:
-      - bash "{{.CLUSTER_SCRIPT}} delete"
+      - bash "{{.CLUSTER_SCRIPT}}" delete
 
   recreate:
-    desc: Delete and recreate the entire platform
+    desc: Recreate the entire platform
     cmds:
       - task: down
       - task: up
@@ -35,22 +32,22 @@ tasks:
   cluster:
     desc: Create the k3d cluster
     cmds:
-      - bash "{{.CLUSTER_SCRIPT}} create"
+      - bash "{{.CLUSTER_SCRIPT}}" create
 
   argocd:
-    desc: Install Argo CD and bootstrap GitOps
+    desc: Install Argo CD
     cmds:
-      - bash "{{.ARGOCD_SCRIPT}}"
+      - bash "{{.ARGOCD_SCRIPT}}" install
 
   wait:
     desc: Wait for Argo CD Applications
     cmds:
-      - bash "{{.ARGOCD_SCRIPT}} wait"
+      - bash "{{.ARGOCD_SCRIPT}}" wait
 
   show:
     desc: Show Argo CD status and login
     cmds:
-      - bash "{{.ARGOCD_SCRIPT}} show"
+      - bash "{{.ARGOCD_SCRIPT}}" show
 
   status:
     desc: Show Argo CD status
