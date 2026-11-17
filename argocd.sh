@@ -1,4 +1,3 @@
-
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -13,7 +12,7 @@ ROOT_APP="$ROOT_DIR/bootstrap/root.yaml"
 ARGOCD_APP="$ROOT_DIR/clusters/$CLUSTER_NAME/argocd.yaml"
 
 
-# Create Redis secret if it doesn't exist
+# Create Redis secret if missing
 create_redis_secret() {
   if kubectl --context "$CONTEXT" -n "$NAMESPACE" \
     get secret argocd-redis &>/dev/null; then
@@ -43,10 +42,10 @@ install_argocd() {
   # Verify cluster connectivity
   kubectl --context "$CONTEXT" cluster-info >/dev/null
 
-  # Check whether Argo CD already exists
+  # Check whether Argo CD is already installed
   local release
-release=$(helm --kube-context "$CONTEXT" \
-  list -n "$NAMESPACE" --all-namespaces=false -q -f '^argocd$')
+  release=$(helm --kube-context "$CONTEXT" \
+    list -n "$NAMESPACE" -q -f '^argocd$')
 
   if [[ -z "$release" ]]; then
     echo "Installing Argo CD..."
@@ -90,11 +89,35 @@ release=$(helm --kube-context "$CONTEXT" \
   kubectl --context "$CONTEXT" apply -f "$ROOT_APP"
 
   echo "GitOps bootstrap complete."
-  show_login
 }
 
 
-# Display first-time login credentials
+# Wait for Argo CD Applications
+wait_argocd() {
+  echo "Waiting for Argo CD Applications..."
+
+  # Wait until the root Application is created
+  kubectl --context "$CONTEXT" -n "$NAMESPACE" \
+    wait --for=create applications.argoproj.io/root \
+    --timeout=5m
+
+  # Wait until Applications are synced
+  kubectl --context "$CONTEXT" -n "$NAMESPACE" \
+    wait --for=jsonpath='{.status.sync.status}'=Synced \
+    applications.argoproj.io --all \
+    --timeout=5m
+
+  # Wait until Applications are healthy
+  kubectl --context "$CONTEXT" -n "$NAMESPACE" \
+    wait --for=jsonpath='{.status.health.status}'=Healthy \
+    applications.argoproj.io --all \
+    --timeout=5m
+
+  echo "Argo CD Applications are Synced and Healthy."
+}
+
+
+# Show first-time login information
 show_login() {
   local password
 
@@ -107,14 +130,15 @@ show_login() {
 ========================================
              Argo CD Login
 ========================================
+
 Username: admin
 Password: ${password:-Unavailable (use existing password)}
 
-1. Start port-forwarding in another terminal:
+1. Start port-forwarding:
 
    kubectl --context $CONTEXT -n $NAMESPACE port-forward svc/argocd-server 8081:80
 
-2. Open in browser:
+2. Open:
 
    http://localhost:8081
 
@@ -123,20 +147,33 @@ EOF
 }
 
 
-# Display Argo CD status
+# Show Argo CD status
 show_status() {
+  echo "Argo CD Pods:"
   kubectl --context "$CONTEXT" -n "$NAMESPACE" get pods
+
+  echo
+  echo "Argo CD Applications:"
   kubectl --context "$CONTEXT" -n "$NAMESPACE" get applications
+}
+
+
+# Show everything
+show_argocd() {
+  show_status
+  show_login
 }
 
 
 # Command entry point
 case "${1:-install}" in
-  install)      install_argocd ;;
-  instructions) show_login ;;
-  status)       show_status ;;
+  install)       install_argocd ;;
+  wait)          wait_argocd ;;
+  show)          show_argocd ;;
+  status)        show_status ;;
+  instructions)  show_login ;;
   *)
-    echo "Usage: $0 [install|instructions|status]"
+    echo "Usage: $0 [install|wait|show|status|instructions]"
     exit 1
     ;;
 esac

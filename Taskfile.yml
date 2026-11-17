@@ -3,9 +3,8 @@
 version: "3"
 
 vars:
-  # Change these if your scripts are named differently (e.g. 2-argocd.sh).
-  CLUSTER_SCRIPT: ./cluster.sh
-  ARGOCD_SCRIPT: ./argocd.sh
+  CLUSTER_SCRIPT: "{{.TASKFILE_DIR}}/cluster.sh"
+  ARGOCD_SCRIPT: "{{.TASKFILE_DIR}}/argocd.sh"
 
 tasks:
   default:
@@ -15,21 +14,20 @@ tasks:
       - task --list
 
   up:
-    desc: Create the cluster and bring everything up, ending with a check of the public URL
+    desc: Create cluster and bootstrap GitOps
     cmds:
       - task: cluster
-      - task: tunnel-secret
       - task: argocd
       - task: wait
-      - task: verify
+      - task: show
 
   down:
-    desc: Delete the cluster
+    desc: Delete the k3d cluster
     cmds:
-      - "{{.CLUSTER_SCRIPT}} delete"
+      - bash "{{.CLUSTER_SCRIPT}} delete"
 
   recreate:
-    desc: Delete everything and bring it back up
+    desc: Delete and recreate the entire platform
     cmds:
       - task: down
       - task: up
@@ -37,19 +35,29 @@ tasks:
   cluster:
     desc: Create the k3d cluster
     cmds:
-      - "{{.CLUSTER_SCRIPT}} create"
+      - bash "{{.CLUSTER_SCRIPT}} create"
 
   argocd:
-    desc: Install ArgoCD and the root Application
+    desc: Install Argo CD and bootstrap GitOps
     cmds:
-      - "{{.ARGOCD_SCRIPT}} install"
+      - bash "{{.ARGOCD_SCRIPT}}"
 
   wait:
-    desc: Wait until every ArgoCD Application is Synced and Healthy
+    desc: Wait for Argo CD Applications
     cmds:
-      - "{{.ARGOCD_SCRIPT}} wait"
+      - bash "{{.ARGOCD_SCRIPT}} wait"
+
+  show:
+    desc: Show Argo CD status and login
+    cmds:
+      - bash "{{.ARGOCD_SCRIPT}} show"
 
   status:
-    desc: Show ArgoCD pods and Applications
+    desc: Show Argo CD status
     cmds:
-      - "{{.ARGOCD_SCRIPT}} status"
+      - bash "{{.ARGOCD_SCRIPT}}" status
+
+  login:
+    desc: Show Argo CD login instructions
+    cmds:
+      - bash "{{.ARGOCD_SCRIPT}}" instructions
