@@ -57,6 +57,7 @@ case "${1:-install}" in
     echo "Argo CD installed. Root Application applied."
     ;;
 
+    instructions)
     # Display initial login instructions
     echo
     echo "=============================="
@@ -70,6 +71,7 @@ case "${1:-install}" in
     echo "2. Argo CD UI: https://localhost:8080"
     echo "=============================="
     echo
+    ;;
 
   status)
     kubectl --context "$CONTEXT" -n argocd get pods
@@ -84,7 +86,7 @@ case "${1:-install}" in
     ;;
 
   *)
-    echo "Usage: $0 [install|status|password]"
+    echo "Usage: $0 [install|instructions|status|password]"
     exit 1
     ;;
 esac
