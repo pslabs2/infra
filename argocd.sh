@@ -17,12 +17,14 @@
 #
 # Configuration (environment variables):
 #   CLUSTER_NAME   k3d cluster name       (default: homelab)
+#   HTTP_PORT      cluster.sh HTTP port   (default: 8080)
 #   WAIT_TIMEOUT   readiness timeout      (default: 300s)
 #   DEBUG          set to 1 for Helm debug output
 
 set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-homelab}"
+HTTP_PORT="${HTTP_PORT:-8080}"
 WAIT_TIMEOUT="${WAIT_TIMEOUT:-300s}"
 DEBUG="${DEBUG:-0}"
 
@@ -108,8 +110,7 @@ install() {
 
   status
   echo
-  log "UI:       kubectl --context ${KUBE_CONTEXT} -n ${NAMESPACE} port-forward svc/${RELEASE}-server 8081:443"
-  log "          then open https://localhost:8081 (user: admin)"
+  log "Local UI becomes available once ArgoCD deploys Traefik and syncs its ingress."
   log "Password: $0 password"
 }
 
@@ -119,6 +120,8 @@ status() {
   echo
   log "Applications"
   kc -n "$NAMESPACE" get applications.argoproj.io
+  echo
+  log "UI: http://localhost:${HTTP_PORT} (user: admin; requires Traefik)"
 }
 
 # Block until every Application is Synced and Healthy, and all the ones
@@ -153,7 +156,7 @@ password() {
   echo
 }
 
-usage() { sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,/^$/p' "$0" | sed 's/^# \{0,1\}//'; }
 
 main() {
   case "${1:-install}" in

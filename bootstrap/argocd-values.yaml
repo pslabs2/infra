@@ -20,6 +20,10 @@ server:
     enabled: true
     ingressClassName: traefik
     tls: false              # set true once you have a cert for this host
+    extraHosts:
+      - name: localhost
+        path: /
+        pathType: Prefix
 
 redisSecretInit:
   enabled: false
