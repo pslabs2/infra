@@ -17,7 +17,8 @@ spec:
         # LoadBalancer on 80/443 is picked up by k3s ServiceLB, which the
         # k3d load balancer forwards to from host ports 8080/8443.
         service:
-          type: LoadBalancer
+          spec:
+            type: LoadBalancer
         ingressClass:
           enabled: true
           isDefaultClass: true
