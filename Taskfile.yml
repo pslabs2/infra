@@ -6,7 +6,6 @@ vars:
   # Change these if your scripts are named differently (e.g. 2-argocd.sh).
   CLUSTER_SCRIPT: ./cluster.sh
   ARGOCD_SCRIPT: ./argocd.sh
-  CLOUDFLARED_SCRIPT: ./cloudflared.sh
 
 tasks:
   default:
@@ -40,11 +39,6 @@ tasks:
     cmds:
       - "{{.CLUSTER_SCRIPT}} create"
 
-  tunnel-secret:
-    desc: Create the Cloudflare tunnel token Secret
-    cmds:
-      - "{{.CLOUDFLARED_SCRIPT}} secret"
-
   argocd:
     desc: Install ArgoCD and the root Application
     cmds:
@@ -54,11 +48,6 @@ tasks:
     desc: Wait until every ArgoCD Application is Synced and Healthy
     cmds:
       - "{{.ARGOCD_SCRIPT}} wait"
-
-  verify:
-    desc: Check the public ArgoCD URL answers through the tunnel
-    cmds:
-      - "{{.CLOUDFLARED_SCRIPT}} verify"
 
   status:
     desc: Show ArgoCD pods and Applications
