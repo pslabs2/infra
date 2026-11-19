@@ -23,9 +23,27 @@ spec:
           hostRootFsMount:
             # k3d nodes run in containers without shared root mount propagation.
             mountPropagation: None
+        extraManifests:
+          - |
+            apiVersion: traefik.io/v1alpha1
+            kind: Middleware
+            metadata:
+              name: prometheus-auth
+              namespace: {{ .Release.Namespace }}
+            spec:
+              basicAuth:
+                secret: prometheus-ingress-auth
+                removeHeader: true
         server:
           ingress:
-            enabled: false
+            enabled: true
+            ingressClassName: traefik
+            annotations:
+              traefik.ingress.kubernetes.io/router.middlewares: observability-prometheus-auth@kubernetescrd
+            hosts:
+              - prometheus.pukarsubedi.com
+            path: /
+            pathType: Prefix
           persistentVolume:
             enabled: true
             storageClass: local-path
