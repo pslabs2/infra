@@ -46,14 +46,27 @@ GitOps `main`. It creates the namespace and generates the Grafana admin
 Secret if missing, without replacing existing credentials. Fresh installs
 do this as part of `bash ./argocd.sh install`.
 
-The stack has no public ingress. To open Grafana, forward its Service and
-browse to `http://localhost:3000`:
+Grafana and Prometheus have Traefik ingress at
+`https://grafana.pukarsubedi.com` and `https://prometheus.pukarsubedi.com`.
+In the remotely managed Cloudflare Tunnel, publish both hostnames to
+`http://traefik.traefik.svc.cluster.local:80`, preserving the original Host
+header, and configure their DNS records. Cloudflare terminates public TLS;
+restrict direct access to the plain HTTP Traefik port.
+
+Grafana uses its own login. Prometheus uses Traefik Basic Auth. Create its
+Secret before opening the route; Traefik won't serve it without the Secret.
+`htpasswd` prompts for a separate, strong password:
 
 ```sh
-kubectl --context k3d-homelab -n observability port-forward svc/grafana 3000:80
+htpasswd -nB prometheus | \
+  kubectl --context k3d-homelab -n observability \
+    create secret generic prometheus-ingress-auth --from-file=users=/dev/stdin
 ```
 
-Log in as `admin`. Retrieve the initial password with:
+Sign in to Prometheus as `prometheus` and only send credentials over HTTPS.
+Cloudflare Access can further restrict who reaches either hostname.
+
+For Grafana, log in as `admin`. Retrieve the initial password with:
 
 ```sh
 kubectl --context k3d-homelab -n observability get secret grafana-admin \
@@ -67,8 +80,9 @@ Kubernetes targets, node-exporter, and kube-state-metrics. The Collector
 ships container logs to Loki and accepts application logs and metrics over
 OTLP (`opentelemetry-collector.observability.svc.cluster.local:4317` for
 gRPC or `http://opentelemetry-collector.observability.svc.cluster.local:4318`
-for HTTP). Traces are not collected; no trace backend is installed. The OTLP
-and backend services are unauthenticated and intended for a trusted cluster.
+for HTTP). Traces are not collected; no trace backend is installed. The
+Collector, Loki, and direct access to the Prometheus Service remain internal
+and unauthenticated.
 
 Grafana, Prometheus, and Loki use k3s `local-path` volumes. Prometheus and Loki
 retain up to seven days of data, with an additional 8 GB retention size limit

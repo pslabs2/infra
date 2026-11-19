@@ -22,7 +22,15 @@ spec:
           storageClassName: local-path
           size: 2Gi
         ingress:
-          enabled: false
+          enabled: true
+          ingressClassName: traefik
+          hosts:
+            - grafana.pukarsubedi.com
+          path: /
+          pathType: Prefix
+        grafana.ini:
+          server:
+            root_url: https://grafana.pukarsubedi.com/
         datasources:
           datasources.yaml:
             apiVersion: 1
