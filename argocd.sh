@@ -27,6 +27,28 @@ create_redis_secret() {
 }
 
 
+# Grafana needs a stable bootstrap password across Argo CD Helm renders.
+bootstrap_observability() {
+  local namespace=observability
+  local secret password
+
+  kubectl --context "$CONTEXT" \
+    create namespace "$namespace" --dry-run=client -o yaml |
+    kubectl --context "$CONTEXT" apply -f -
+
+  secret=$(kubectl --context "$CONTEXT" -n "$namespace" \
+    get secret grafana-admin --ignore-not-found -o name)
+  if [[ -z "$secret" ]]; then
+    echo "Creating Grafana admin secret..."
+    password=$(openssl rand -hex 32)
+    printf '%s' "$password" |
+      kubectl --context "$CONTEXT" -n "$namespace" \
+        create secret generic grafana-admin \
+        --from-literal=admin-user=admin --from-file=admin-password=/dev/stdin
+  fi
+}
+
+
 # Install Argo CD and bootstrap GitOps
 install_argocd() {
   echo "Bootstrapping Argo CD..."
@@ -85,6 +107,7 @@ install_argocd() {
   fi
 
   # Hand control to GitOps
+  bootstrap_observability
   echo "Applying root Application..."
   kubectl --context "$CONTEXT" apply -f "$ROOT_APP"
 
@@ -168,12 +191,13 @@ show_argocd() {
 # Command entry point
 case "${1:-install}" in
   install)       install_argocd ;;
+  observability) bootstrap_observability ;;
   wait)          wait_argocd ;;
   show)          show_argocd ;;
   status)        show_status ;;
   instructions)  show_login ;;
   *)
-    echo "Usage: $0 [install|wait|show|status|instructions]"
+    echo "Usage: $0 [install|observability|wait|show|status|instructions]"
     exit 1
     ;;
 esac

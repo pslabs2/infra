@@ -1,0 +1,75 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: opentelemetry-collector
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: default
+  source:
+    repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+    chart: opentelemetry-collector
+    targetRevision: 0.178.2
+    helm:
+      valuesObject:
+        mode: daemonset
+        fullnameOverride: opentelemetry-collector
+        image:
+          repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-k8s
+        command:
+          name: otelcol-k8s
+        presets:
+          logsCollection:
+            enabled: true
+            storeCheckpoints: true
+          kubernetesAttributes:
+            enabled: true
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+        service:
+          enabled: true
+          type: ClusterIP
+        ports:
+          otlp:
+            hostPort: null
+          otlp-http:
+            hostPort: null
+          jaeger-compact:
+            enabled: false
+          jaeger-thrift:
+            enabled: false
+          jaeger-grpc:
+            enabled: false
+          zipkin:
+            enabled: false
+        config:
+          receivers:
+            jaeger: null
+            zipkin: null
+          exporters:
+            debug: null
+            otlp_http/loki:
+              endpoint: http://loki.observability.svc.cluster.local:3100/otlp
+            otlp_http/prometheus:
+              metrics_endpoint: http://prometheus-server.observability.svc.cluster.local/api/v1/otlp/v1/metrics
+          service:
+            pipelines:
+              logs:
+                exporters: [otlp_http/loki]
+              metrics:
+                exporters: [otlp_http/prometheus]
+              traces: null
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

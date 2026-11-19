@@ -1,0 +1,46 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: prometheus
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: prometheus
+    targetRevision: 28.0.0
+    helm:
+      valuesObject:
+        alertmanager:
+          enabled: false
+        prometheus-pushgateway:
+          enabled: false
+        kube-state-metrics:
+          prometheusScrape: true
+        prometheus-node-exporter:
+          hostRootFsMount:
+            # k3d nodes run in containers without shared root mount propagation.
+            mountPropagation: None
+        server:
+          ingress:
+            enabled: false
+          persistentVolume:
+            enabled: true
+            storageClass: local-path
+            size: 10Gi
+          retention: 7d
+          retentionSize: 8GB
+          extraFlags:
+            - web.enable-lifecycle
+            - web.enable-otlp-receiver
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
