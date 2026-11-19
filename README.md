@@ -23,12 +23,16 @@ public hostname; ArgoCD authentication still applies. The rule matches the
 
 ## Homelab Dashboard
 
-The root Argo CD Application deploys Dashboard into the `dashboard` namespace.
-Dashboard shows cluster state without authentication by default, so no ingress
-is created. After it syncs, run:
+The root Argo CD Application deploys Dashboard into the `dashboard` namespace
+with a Traefik ingress for `dashboard.pukarsubedi.com`. Commit and push the
+change to the GitOps `main` branch for Argo CD to sync it.
 
-```sh
-kubectl -n dashboard port-forward svc/dashboard-homelab-dashboard 8081:80
-```
+The Cloudflare Tunnel is remotely managed. Configure its public hostname
+`dashboard.pukarsubedi.com` to route to
+`http://traefik.traefik.svc.cluster.local:80`, preserving the original Host
+header, and configure its DNS record. Cloudflare terminates public HTTPS;
+the ingress itself serves HTTP.
 
-Open **http://localhost:8081** while the port-forward is running.
+Dashboard exposes cluster state without authentication. A Cloudflare Access
+policy can protect the public hostname, but direct access to the published
+Traefik port bypasses it. Restrict network access to that port separately.

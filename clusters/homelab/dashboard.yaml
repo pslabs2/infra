@@ -13,9 +13,14 @@ spec:
     path: deploy/helm/homelab-dashboard
     helm:
       valuesObject:
-        # Dashboard exposes cluster state without authentication by default.
         ingress:
-          enabled: false
+          enabled: true
+          className: traefik
+          hosts:
+            - host: dashboard.pukarsubedi.com
+              paths:
+                - path: /
+                  pathType: Prefix
   destination:
     server: https://kubernetes.default.svc
     namespace: dashboard
