@@ -20,3 +20,15 @@ Local access uses plain HTTP and bypasses any Cloudflare Access policy on the
 public hostname; ArgoCD authentication still applies. The rule matches the
 `localhost` hostname but does not restrict network access to loopback:
 `cluster.sh` currently publishes ingress ports on all host interfaces.
+
+## Homelab Dashboard
+
+The root Argo CD Application deploys Dashboard into the `dashboard` namespace.
+Dashboard shows cluster state without authentication by default, so no ingress
+is created. After it syncs, run:
+
+```sh
+kubectl -n dashboard port-forward svc/dashboard-homelab-dashboard 8081:80
+```
+
+Open **http://localhost:8081** while the port-forward is running.
