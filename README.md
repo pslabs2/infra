@@ -89,3 +89,28 @@ retain up to seven days of data, with an additional 8 GB retention size limit
 for Prometheus. This is a single-cluster setup without high availability or
 backups; monitor node disk usage, especially for Loki, whose retention is
 time-based. Deleting the k3d cluster can delete the stored data.
+
+## Speech-to-text (Whisper)
+
+The root Argo CD Application deploys a shared [speaches](https://speaches.ai)
+server (faster-whisper on CPU) into the `whisper` namespace from
+`infrastructure/whisper/`. Any service in the cluster can use its
+OpenAI-compatible API at `http://whisper.whisper.svc.cluster.local:8000`, for
+example `POST /v1/audio/transcriptions` or the realtime WebSocket. llm-chat's API
+uses it through `STT_URL` in `clusters/homelab/llm-chat.yaml`.
+
+An init container downloads every model listed in the Deployment's `MODELS`
+into the `whisper-models` volume on first start; the server then runs offline
+and only serves those models. To add a model, append it to `MODELS` and push.
+The first sync pulls a ~3.4 GB image and downloads the model, so the pod can
+take several minutes to become ready.
+
+There is one replica, and each active transcription uses about one CPU core.
+The Service has no ingress and speaches has no authentication; keep it
+cluster-internal. To test it from your machine:
+
+```sh
+kubectl --context k3d-homelab -n whisper port-forward svc/whisper 8000:8000
+curl -F file=@speech.wav -F model=Systran/faster-distil-whisper-small.en \
+  http://localhost:8000/v1/audio/transcriptions
+```

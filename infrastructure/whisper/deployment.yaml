@@ -1,0 +1,126 @@
+# Shared speech-to-text server: speaches (faster-whisper) on CPU.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whisper
+  labels:
+    app.kubernetes.io/name: whisper
+spec:
+  # One replica: models load into memory per pod, and the model volume is ReadWriteOnce.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: whisper
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: whisper
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Downloads every model in MODELS once; later starts reuse the cache, even offline.
+        # Clients can only use models listed here.
+        - name: download-models
+          image: ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu@sha256:2163775b6df5e451a71200e8f675fed68dbd8ab184fc604453d549e486f22fd2
+          imagePullPolicy: IfNotPresent
+          securityContext: &securityContext
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - python
+            - -c
+            - |
+              import json
+              import os
+              from huggingface_hub import snapshot_download
+
+              # The files speaches loads for a faster-whisper model.
+              files = ["config.json", "preprocessor_config.json", "model.bin", "tokenizer.json", "vocabulary.*", "README.md"]
+              for model in json.loads(os.environ["MODELS"]):
+                  print("Model ready at", snapshot_download(model, allow_patterns=files))
+          env:
+            - name: MODELS
+              value: '["Systran/faster-distil-whisper-small.en"]'
+            - name: HF_HUB_DISABLE_TELEMETRY
+              value: "1"
+          resources: &resources
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              memory: 3Gi
+          volumeMounts: &volumeMounts
+            - name: models
+              mountPath: /home/ubuntu/.cache/huggingface
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: whisper
+          image: ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu@sha256:2163775b6df5e451a71200e8f675fed68dbd8ab184fc604453d549e486f22fd2
+          imagePullPolicy: IfNotPresent
+          securityContext: *securityContext
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            - name: HF_HUB_OFFLINE
+              value: "1"
+            # Transcribe through the server's own HTTP endpoint. speaches 0.9.0-rc.3's in-process
+            # client fails realtime transcription (speaches-ai/speaches#559).
+            - name: LOOPBACK_HOST_URL
+              value: http://127.0.0.1:8000
+            - name: ENABLE_UI
+              value: "false"
+            - name: LOG_LEVEL
+              value: info
+            # Keep models loaded so the first request after a quiet period isn't slow.
+            - name: STT_MODEL_TTL
+              value: "-1"
+            - name: WHISPER__INFERENCE_DEVICE
+              value: cpu
+            - name: WHISPER__COMPUTE_TYPE
+              value: int8
+            # 0 lets CTranslate2 decide.
+            - name: WHISPER__CPU_THREADS
+              value: "0"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # Transcription is CPU-bound; each active stream uses about one core.
+          resources: *resources
+          volumeMounts: *volumeMounts
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: whisper-models
+        - name: tmp
+          emptyDir: {}

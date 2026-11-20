@@ -1,0 +1,14 @@
+# Model cache, so restarts don't download models again. local-path volumes are tied to one node.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: whisper-models
+  labels:
+    app.kubernetes.io/name: whisper
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi

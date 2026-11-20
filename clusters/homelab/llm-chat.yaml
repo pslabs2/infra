@@ -18,6 +18,12 @@ spec:
         extraEnv:
           - name: APP_ENV
             value: production
+          # Voice input through the shared speaches server (clusters/homelab/whisper.yaml).
+          # STT_MODEL must be listed in that server's MODELS.
+          - name: STT_URL
+            value: http://whisper.whisper.svc.cluster.local:8000
+          - name: STT_MODEL
+            value: Systran/faster-distil-whisper-small.en
   destination:
     server: https://kubernetes.default.svc
     namespace: llm-chat
