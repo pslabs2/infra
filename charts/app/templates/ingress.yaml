@@ -1,0 +1,42 @@
+{{- range $name, $c := .Values.components }}
+{{- $ing := $c.ingress | default dict }}
+{{- if and (ne (toString $c.enabled) "false") $ing.enabled }}
+{{- $svc := $c.service | default dict }}
+{{- if eq (toString $svc.enabled) "false" }}
+{{- fail (printf "components.%s.ingress needs the component's Service" $name) }}
+{{- end }}
+{{- $ctx := dict "root" $ "name" $name "component" $c }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "app.labels" $ctx | nindent 4 }}
+  {{- with $ing.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with ($ing.className | default $.Values.ingress.className) }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with $ing.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - {{- with $ing.host }}
+      host: {{ tpl . $ | quote }}
+      {{- end }}
+      http:
+        paths:
+          - path: {{ $ing.path | default "/" }}
+            pathType: {{ $ing.pathType | default "Prefix" }}
+            backend:
+              service:
+                name: {{ $name }}
+                port:
+                  name: http
+{{- end }}
+{{- end }}

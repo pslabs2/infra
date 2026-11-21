@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "nameOverride": { "type": "string" },
+    "imagePullSecrets": { "type": "array" },
+    "podSecurityContext": { "type": "object" },
+    "securityContext": { "type": "object" },
+    "resources": { "type": "object" },
+    "writablePaths": { "$ref": "#/definitions/paths" },
+    "ingress": {
+      "type": "object",
+      "properties": { "className": { "type": "string" } }
+    },
+    "components": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$"
+      },
+      "additionalProperties": { "$ref": "#/definitions/component" }
+    }
+  },
+  "definitions": {
+    "paths": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^/" }
+    },
+    "component": {
+      "type": "object",
+      "required": ["image", "port"],
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicas": { "type": "integer", "minimum": 0 },
+        "image": {
+          "type": "object",
+          "required": ["repository"],
+          "additionalProperties": false,
+          "properties": {
+            "repository": { "type": "string", "minLength": 1 },
+            "tag": { "type": "string", "description": "Quote numeric tags, e.g. \"1.10\"" },
+            "digest": { "type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$" },
+            "pullPolicy": { "enum": ["Always", "IfNotPresent", "Never"] }
+          }
+        },
+        "command": { "type": "array", "items": { "type": "string" } },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "probe": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "path": { "type": "string" } }
+        },
+        "startupProbe": { "type": ["object", "null"] },
+        "readinessProbe": { "type": ["object", "null"] },
+        "livenessProbe": { "type": ["object", "null"] },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": ["string", "number", "boolean"] }
+        },
+        "extraEnv": { "type": "array" },
+        "envFrom": { "type": "array" },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "type": { "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          }
+        },
+        "ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "className": { "type": "string" },
+            "host": { "type": "string" },
+            "path": { "type": "string" },
+            "pathType": { "enum": ["Prefix", "Exact", "ImplementationSpecific"] },
+            "annotations": { "type": "object" },
+            "tls": { "type": "array" }
+          }
+        },
+        "writablePaths": { "$ref": "#/definitions/paths" },
+        "resources": { "type": "object" },
+        "podSecurityContext": { "type": "object" },
+        "securityContext": { "type": "object" },
+        "podAnnotations": { "type": "object" },
+        "nodeSelector": { "type": "object" },
+        "tolerations": { "type": "array" },
+        "affinity": { "type": "object" }
+      }
+    }
+  }
+}

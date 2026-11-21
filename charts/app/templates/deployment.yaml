@@ -1,0 +1,128 @@
+{{- range $name, $c := .Values.components }}
+{{- if ne (toString $c.enabled) "false" }}
+{{- $ctx := dict "root" $ "name" $name "component" $c }}
+{{- $port := required (printf "components.%s.port is required" $name) $c.port }}
+{{- $probe := $c.probe | default dict }}
+{{- $writable := fromYamlArray (include "app.setting" (dict "root" $ "component" $c "key" "writablePaths")) }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "app.labels" $ctx | nindent 4 }}
+spec:
+  replicas: {{ hasKey $c "replicas" | ternary $c.replicas 1 }}
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      {{- include "app.selectorLabels" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "app.labels" $ctx | nindent 8 }}
+      {{- with $c.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "app.setting" (dict "root" $ "component" $c "key" "podSecurityContext") | nindent 8 }}
+      containers:
+        - name: {{ $name }}
+          image: {{ include "app.image" (dict "name" $name "image" $c.image) | quote }}
+          imagePullPolicy: {{ $c.image.pullPolicy | default "IfNotPresent" }}
+          {{- with $c.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $c.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- include "app.setting" (dict "root" $ "component" $c "key" "securityContext") | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ $port }}
+              protocol: TCP
+          {{- if or $c.env $c.extraEnv }}
+          env:
+            {{- range $key, $value := $c.env }}
+            - name: {{ $key }}
+              value: {{ tpl (toString $value) $ | quote }}
+            {{- end }}
+            {{- with $c.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- with $c.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- $check := dict "tcpSocket" (dict "port" "http") }}
+          {{- with $probe.path }}
+          {{- $check = dict "httpGet" (dict "path" . "port" "http") }}
+          {{- end }}
+          {{- if hasKey $c "startupProbe" }}
+          {{- with $c.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- else }}
+          startupProbe:
+            {{- toYaml (merge (dict "periodSeconds" 5 "failureThreshold" 24) $check) | nindent 12 }}
+          {{- end }}
+          {{- if hasKey $c "readinessProbe" }}
+          {{- with $c.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- else }}
+          readinessProbe:
+            {{- toYaml (merge (dict "periodSeconds" 10 "timeoutSeconds" 3) $check) | nindent 12 }}
+          {{- end }}
+          {{- if hasKey $c "livenessProbe" }}
+          {{- with $c.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- else }}
+          livenessProbe:
+            {{- toYaml (merge (dict "periodSeconds" 20 "timeoutSeconds" 3 "failureThreshold" 3) $check) | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- include "app.setting" (dict "root" $ "component" $c "key" "resources") | nindent 12 }}
+          {{- with $writable }}
+          volumeMounts:
+            {{- range $i, $path := . }}
+            - name: writable-{{ $i }}
+              mountPath: {{ $path }}
+            {{- end }}
+          {{- end }}
+      {{- with $writable }}
+      volumes:
+        {{- range $i, $path := . }}
+        - name: writable-{{ $i }}
+          emptyDir: {}
+        {{- end }}
+      {{- end }}
+      {{- with $c.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- end }}

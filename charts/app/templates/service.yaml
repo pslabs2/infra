@@ -1,0 +1,22 @@
+{{- range $name, $c := .Values.components }}
+{{- $svc := $c.service | default dict }}
+{{- if and (ne (toString $c.enabled) "false") (ne (toString $svc.enabled) "false") }}
+{{- $ctx := dict "root" $ "name" $name "component" $c }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "app.labels" $ctx | nindent 4 }}
+spec:
+  type: {{ $svc.type | default "ClusterIP" }}
+  selector:
+    {{- include "app.selectorLabels" $ctx | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $svc.port | default $c.port }}
+      targetPort: http
+      protocol: TCP
+{{- end }}
+{{- end }}

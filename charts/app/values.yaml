@@ -1,0 +1,80 @@
+# Generic application chart. Every entry under `components` becomes a Deployment, a
+# Service and (optionally) an Ingress. Resources are named after the component
+# (component "backend" creates Service "backend"), so deploy one app per namespace.
+#
+# Per-app values live in apps/<app>/values.yaml and are created by the
+# pslabs2/workflows onboard-app workflow.
+
+# Value of the app.kubernetes.io/part-of label. Defaults to the release name.
+nameOverride: ""
+
+imagePullSecrets: []
+
+# Defaults for every component. A component that sets one of these keys replaces
+# the default entirely (no deep merge), so `securityContext: {}` really is empty.
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+# Each path gets an emptyDir, because the root filesystem is read-only.
+writablePaths:
+  - /tmp
+
+ingress:
+  className: traefik
+
+components: {}
+# components:
+#   backend:
+#     enabled: true
+#     replicas: 1
+#     image:
+#       repository: ghcr.io/pslabs2/my-app-backend
+#       tag: sha-1234567
+#       digest: ""            # pulled instead of the tag when set
+#       pullPolicy: IfNotPresent
+#     command: []
+#     args: []
+#     port: 8000              # containerPort, exposed as the named port "http"
+#     probe:
+#       path: /api/health     # HTTP readiness/liveness probe; TCP check on the port when empty
+#     # readinessProbe / livenessProbe / startupProbe replace the generated probes.
+#     env:                    # map of plain values; values are rendered with tpl
+#       CORS_ORIGINS: https://my-app.example.com
+#     extraEnv: []            # raw EnvVar list, e.g. secretKeyRef
+#     envFrom: []             # e.g. [{secretRef: {name: backend, optional: true}}]
+#     service:
+#       enabled: true
+#       type: ClusterIP
+#       port: 8000            # defaults to `port`
+#     ingress:
+#       enabled: false
+#       className: ""         # defaults to ingress.className
+#       host: ""              # empty matches any host
+#       path: /
+#       pathType: Prefix
+#       annotations: {}
+#       tls: []
+#     writablePaths: [/tmp]
+#     resources: {}
+#     podSecurityContext: {}
+#     securityContext: {}
+#     podAnnotations: {}
+#     nodeSelector: {}
+#     tolerations: []
+#     affinity: {}

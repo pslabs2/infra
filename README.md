@@ -114,3 +114,33 @@ kubectl --context k3d-homelab -n whisper port-forward svc/whisper 8000:8000
 curl -F file=@speech.wav -F model=Systran/faster-distil-whisper-small.en \
   http://localhost:8000/v1/audio/transcriptions
 ```
+
+## Onboarded applications
+
+Apps built from [template-chat](https://github.com/pslabs2/template-chat), or any
+repo whose images are published by the `cd-*` workflows, are onboarded by the
+[`onboard-app`](https://github.com/pslabs2/workflows/blob/main/.github/workflows/onboard-app.yaml)
+reusable workflow. It commits two files straight to `main`:
+
+- `apps/<app>/values.yaml`: values for the shared chart `charts/app`
+- `clusters/homelab/<app>.yaml`: the app's Argo CD Application, deployed into the
+  `<app>` namespace
+
+The root Application picks up the new Application on its next sync.
+
+`charts/app` creates a Deployment, a Service and an optional Ingress (Traefik) for
+every entry under `components`, named after the component. Deploy one app per
+namespace. Containers run as non-root with a read-only root filesystem and no
+capabilities; each path in `writablePaths` gets an `emptyDir`. Every app uses the chart
+from `main`, so chart changes roll out to all onboarded apps at once. See
+`charts/app/values.yaml` for every option.
+
+After onboarding, these files are the source of truth. To deploy a new image,
+update `image.tag` and `image.digest` in `apps/<app>/values.yaml` and push.
+Template-chat apps get an ingress for `<app>.localhost` by default. For a public
+hostname, set `ingress.host` and route it through the Cloudflare Tunnel as
+described for Dashboard above. Put secrets in a Secret in the app's namespace and
+reference it with `envFrom` or `extraEnv`.
+
+To remove an app, delete both files and push. The Application's finalizer deletes
+its resources; the namespace stays.
