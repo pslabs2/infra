@@ -1,0 +1,17 @@
+# Cluster-internal only: speaches has no authentication. Clients use
+# http://whisper.whisper.svc.cluster.local:8000 (OpenAI-compatible API).
+apiVersion: v1
+kind: Service
+metadata:
+  name: whisper
+  labels:
+    app.kubernetes.io/name: whisper
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: whisper
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP

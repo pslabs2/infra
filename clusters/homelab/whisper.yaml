@@ -1,0 +1,24 @@
+# Shared speech-to-text (speaches / faster-whisper) for any service in the cluster.
+# Plain manifests live in infrastructure/whisper/.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: whisper
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io/foreground
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/pslabs2/infra
+    targetRevision: main
+    path: infrastructure/whisper
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: whisper
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
