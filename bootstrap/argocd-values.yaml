@@ -15,15 +15,17 @@ configs:
   params:
     server.insecure: true   # TLS ends at Traefik; avoids a redirect loop
 
+# Needs the Gateway API CRDs, which argocd.sh installs before ArgoCD.
 server:
-  ingress:
+  httproute:
     enabled: true
-    ingressClassName: traefik
-    tls: false              # set true once you have a cert for this host
-    extraHosts:
-      - name: localhost
-        path: /
-        pathType: Prefix
+    parentRefs:
+      - name: traefik-gateway
+        namespace: traefik
+        sectionName: web
+    hostnames:
+      - argocd.pukarsubedi.com
+      - localhost
 
 redisSecretInit:
   enabled: false

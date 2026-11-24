@@ -1,4 +1,6 @@
-# Traefik ingress controller — replaces the one k3s would have bundled.
+# Traefik — replaces the one k3s would have bundled. Serves the shared Gateway
+# (traefik/traefik-gateway) that every HTTPRoute attaches to. The Ingress
+# provider stays on so Ingresses keep working, e.g. from charts/app.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -22,6 +24,17 @@ spec:
         ingressClass:
           enabled: true
           isDefaultClass: true
+        # Needs the CRDs from clusters/homelab/gateway-api.yaml.
+        providers:
+          kubernetesGateway:
+            enabled: true
+        gateway:
+          listeners:
+            web:
+              port: 8000      # the "web" entrypoint behind Service port 80
+              protocol: HTTP
+              namespacePolicy:
+                from: All     # routes live in each app's namespace
   destination:
     server: https://kubernetes.default.svc
     namespace: traefik
@@ -32,3 +45,9 @@ spec:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+    retry:   # until the Gateway API CRDs exist
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

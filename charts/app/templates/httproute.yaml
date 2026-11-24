@@ -1,0 +1,44 @@
+{{- range $name, $c := .Values.components }}
+{{- $route := $c.route | default dict }}
+{{- if and (ne (toString $c.enabled) "false") $route.enabled }}
+{{- $svc := $c.service | default dict }}
+{{- if eq (toString $svc.enabled) "false" }}
+{{- fail (printf "components.%s.route needs the component's Service" $name) }}
+{{- end }}
+{{- $parentRefs := $route.parentRefs | default $.Values.gateway.parentRefs }}
+{{- if not $parentRefs }}
+{{- fail (printf "components.%s.route needs parentRefs (or gateway.parentRefs)" $name) }}
+{{- end }}
+{{- $ctx := dict "root" $ "name" $name "component" $c }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "app.labels" $ctx | nindent 4 }}
+  {{- with $route.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  parentRefs:
+    {{- toYaml $parentRefs | nindent 4 }}
+  {{- with $route.host }}
+  hostnames:
+    - {{ tpl . $ | quote }}
+  {{- end }}
+  rules:
+    - matches:
+        - path:
+            type: {{ $route.pathType | default "PathPrefix" }}
+            value: {{ $route.path | default "/" }}
+      {{- with $route.filters }}
+      filters:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      backendRefs:
+        - name: {{ $name }}
+          port: {{ $svc.port | default $c.port }}
+{{- end }}
+{{- end }}

@@ -35,15 +35,21 @@ spec:
                 secret: prometheus-ingress-auth
                 removeHeader: true
         server:
-          ingress:
-            enabled: true
-            ingressClassName: traefik
-            annotations:
-              traefik.ingress.kubernetes.io/router.middlewares: observability-prometheus-auth@kubernetescrd
-            hosts:
-              - prometheus.pukarsubedi.com
-            path: /
-            pathType: Prefix
+          route:
+            main:
+              enabled: true
+              parentRefs:
+                - name: traefik-gateway
+                  namespace: traefik
+                  sectionName: web
+              hostnames:
+                - prometheus.pukarsubedi.com
+              filters:
+                - type: ExtensionRef
+                  extensionRef:
+                    group: traefik.io
+                    kind: Middleware
+                    name: prometheus-auth
           persistentVolume:
             enabled: true
             storageClass: local-path
@@ -62,3 +68,9 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+    retry:   # until the Gateway API CRDs exist
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

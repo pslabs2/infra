@@ -13,14 +13,14 @@ spec:
     path: deploy/helm/homelab-dashboard
     helm:
       valuesObject:
-        ingress:
+        httpRoute:
           enabled: true
-          className: traefik
-          hosts:
-            - host: dashboard.pukarsubedi.com
-              paths:
-                - path: /
-                  pathType: Prefix
+          parentRefs:
+            - name: traefik-gateway
+              namespace: traefik
+              sectionName: web
+          hostnames:
+            - dashboard.pukarsubedi.com
   destination:
     server: https://kubernetes.default.svc
     namespace: dashboard
@@ -30,3 +30,9 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+    retry:   # until the Gateway API CRDs exist
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

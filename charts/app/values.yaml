@@ -1,5 +1,5 @@
 # Generic application chart. Every entry under `components` becomes a Deployment, a
-# Service and (optionally) an Ingress. Resources are named after the component
+# Service and (optionally) an HTTPRoute or an Ingress. Resources are named after the component
 # (component "backend" creates Service "backend"), so deploy one app per namespace.
 #
 # Per-app values live in apps/<app>/values.yaml and are created by the
@@ -35,6 +35,14 @@ resources:
 writablePaths:
   - /tmp
 
+# Default Gateway for component routes: Traefik's shared Gateway.
+gateway:
+  parentRefs:
+    - name: traefik-gateway
+      namespace: traefik
+      sectionName: web
+
+# Prefer `route`; Ingress stays supported for apps that still set `ingress`.
 ingress:
   className: traefik
 
@@ -62,7 +70,15 @@ components: {}
 #       enabled: true
 #       type: ClusterIP
 #       port: 8000            # defaults to `port`
-#     ingress:
+#     route:                  # Gateway API HTTPRoute
+#       enabled: false
+#       parentRefs: []        # defaults to gateway.parentRefs
+#       host: ""              # empty matches any host; rendered with tpl
+#       path: /
+#       pathType: PathPrefix  # PathPrefix, Exact or RegularExpression
+#       filters: []           # HTTPRoute filters, e.g. a Traefik Middleware ExtensionRef
+#       annotations: {}
+#     ingress:                # legacy; prefer route
 #       enabled: false
 #       className: ""         # defaults to ingress.className
 #       host: ""              # empty matches any host

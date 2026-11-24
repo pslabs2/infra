@@ -33,3 +33,9 @@ spec:
       selfHeal: true
     syncOptions:
       - ServerSideApply=true   # ArgoCD's CRDs are too large for client-side apply
+    retry:   # until the Gateway API CRDs exist
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
