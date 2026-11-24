@@ -21,13 +21,15 @@ spec:
           enabled: true
           storageClassName: local-path
           size: 2Gi
-        ingress:
-          enabled: true
-          ingressClassName: traefik
-          hosts:
-            - grafana.pukarsubedi.com
-          path: /
-          pathType: Prefix
+        route:
+          main:
+            enabled: true
+            parentRefs:
+              - name: traefik-gateway
+                namespace: traefik
+                sectionName: web
+            hostnames:
+              - grafana.pukarsubedi.com
         grafana.ini:
           server:
             root_url: https://grafana.pukarsubedi.com/
@@ -55,3 +57,9 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+    retry:   # until the Gateway API CRDs exist
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

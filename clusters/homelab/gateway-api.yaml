@@ -1,0 +1,30 @@
+# Gateway API CRDs (standard channel). Traefik serves the Gateway and HTTPRoutes;
+# the CRDs are not part of its chart.
+#
+# Keep targetRevision on the version Traefik supports (see the Traefik chart
+# README); argocd.sh reads the same line to install the CRDs at bootstrap.
+#
+# No resources finalizer on purpose: deleting this Application must not delete
+# the CRDs, which would delete every Gateway and HTTPRoute in the cluster.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gateway-api
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/kubernetes-sigs/gateway-api
+    targetRevision: v1.6.3
+    path: config/crd
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: false
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true   # the CRDs are too large for client-side apply

@@ -10,6 +10,24 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VALUES="$ROOT_DIR/bootstrap/argocd-values.yaml"
 ROOT_APP="$ROOT_DIR/bootstrap/root.yaml"
 ARGOCD_APP="$ROOT_DIR/clusters/$CLUSTER_NAME/argocd.yaml"
+GATEWAY_API_APP="$ROOT_DIR/clusters/$CLUSTER_NAME/gateway-api.yaml"
+
+
+# Install the Gateway API CRDs; ArgoCD's HTTPRoute needs them before Traefik
+# is deployed. ArgoCD manages them afterwards (clusters/<cluster>/gateway-api.yaml).
+install_gateway_api() {
+  local version
+  version=$(awk '/targetRevision:/ { print $2; exit }' "$GATEWAY_API_APP")
+
+  [[ -n "$version" ]] || {
+    echo "Gateway API version not found."
+    exit 1
+  }
+
+  echo "Installing Gateway API CRDs $version..."
+  kubectl --context "$CONTEXT" apply --server-side -f \
+    "https://github.com/kubernetes-sigs/gateway-api/releases/download/$version/standard-install.yaml"
+}
 
 
 # Create Redis secret if missing
@@ -54,7 +72,7 @@ install_argocd() {
   echo "Bootstrapping Argo CD..."
 
   # Verify configuration files
-  for file in "$VALUES" "$ROOT_APP" "$ARGOCD_APP"; do
+  for file in "$VALUES" "$ROOT_APP" "$ARGOCD_APP" "$GATEWAY_API_APP"; do
     [[ -f "$file" ]] || {
       echo "Missing configuration: $file"
       exit 1
@@ -90,6 +108,7 @@ install_argocd() {
       kubectl --context "$CONTEXT" apply -f -
 
     create_redis_secret
+    install_gateway_api
 
     # Install Helm chart
     helm --kube-context "$CONTEXT" \
@@ -191,13 +210,14 @@ show_argocd() {
 # Command entry point
 case "${1:-install}" in
   install)       install_argocd ;;
+  gateway-api)   install_gateway_api ;;
   observability) bootstrap_observability ;;
   wait)          wait_argocd ;;
   show)          show_argocd ;;
   status)        show_status ;;
   instructions)  show_login ;;
   *)
-    echo "Usage: $0 [install|observability|wait|show|status|instructions]"
+    echo "Usage: $0 [install|gateway-api|observability|wait|show|status|instructions]"
     exit 1
     ;;
 esac
